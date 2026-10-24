@@ -1,0 +1,6 @@
+Relay
+Copyright 2026 Relay contributors
+
+Licensed under the Apache License, Version 2.0.
+This project is independent of OpenAI, Anthropic, and Google.
+Third-party dependencies retain their own licenses; see package-lock.json and installed dependency notices.

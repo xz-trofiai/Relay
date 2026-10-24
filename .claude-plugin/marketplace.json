@@ -1,0 +1,12 @@
+{
+  "name": "relay-local",
+  "description": "Local plugins for addressed communication between agent sessions on this Mac.",
+  "owner": { "name": "Local developer" },
+  "plugins": [
+    {
+      "name": "relay",
+      "source": "./plugins/relay",
+      "description": "A local channel for messages between exact agent sessions."
+    }
+  ]
+}

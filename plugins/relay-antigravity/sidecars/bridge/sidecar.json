@@ -1,0 +1,7 @@
+{
+  "command": "node",
+  "args": ["../../scripts/sidecar.mjs"],
+  "restart_policy": "on-failure",
+  "description": "Deliver queued Relay messages to exact registered Antigravity App conversations.",
+  "display_name": "Relay"
+}

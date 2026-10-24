@@ -1,0 +1,6 @@
+interface:
+  display_name: "Relay"
+  short_description: "Message sessions across agent apps"
+  default_prompt: "Use $relay to register this session and show available recipients."
+policy:
+  allow_implicit_invocation: true

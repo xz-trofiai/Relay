@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "relay",
+  "description": "Local plain-text messages between registered Codex, Claude, and Antigravity App conversations."
+}

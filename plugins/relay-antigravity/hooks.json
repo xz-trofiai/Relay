@@ -1,0 +1,11 @@
+{
+  "relay-session-context": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node \"$HOME/.gemini/config/plugins/relay/scripts/hook.mjs\"",
+        "timeout": 10
+      }
+    ]
+  }
+}

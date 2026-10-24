@@ -1,0 +1,14 @@
+node_modules/
+.relay/
+.local-notes/
+dist/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+owner-token
+identities/
+*.log
+.DS_Store

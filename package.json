@@ -1,0 +1,56 @@
+{
+  "name": "local-agent-relay",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "agent-relay": "src/cli.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs serve",
+    "test": "node --test test/*.test.mjs",
+    "plugins:install": "node scripts/install-plugins.mjs",
+    "check:distribution": "node scripts/check-distribution.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2"
+  },
+  "description": "Local plain-text messaging between existing Codex, Claude, and Antigravity conversations.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xz-trofiai/Relay.git"
+  },
+  "homepage": "https://github.com/xz-trofiai/Relay#readme",
+  "bugs": {
+    "url": "https://github.com/xz-trofiai/Relay/issues"
+  },
+  "keywords": [
+    "agents",
+    "codex",
+    "claude",
+    "antigravity",
+    "messaging",
+    "mcp"
+  ],
+  "files": [
+    "src/",
+    "scripts/",
+    "plugins/",
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+    "integrations/",
+    "docs/",
+    "test/",
+    "README.md",
+    "VALIDATION.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "LICENSE",
+    "NOTICE"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "relay",
+  "version": "0.3.0",
+  "description": "Register the current session and exchange addressed messages with Codex, Claude, and Antigravity App sessions through a local shared channel.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "Relay",
+    "shortDescription": "Message sessions across agent apps.",
+    "longDescription": "Join a local Relay channel from this exact chat, list registered recipients, send messages and reply with a durable shared history. Supports Codex desktop and Claude desktop Code sessions.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use $relay to register this session and show the available recipients."
+  }
+}
