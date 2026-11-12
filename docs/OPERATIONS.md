@@ -46,6 +46,8 @@ Inspect the intended recipient and history before requeueing: native submission 
 
 Let current submissions finish, stop the broker, and retain the state directory. Update the checkout or replace the source release, run `npm ci --ignore-scripts`, rerun the relevant plugin installer, and start the updated broker using the same state and port. A new checkout path requires updating the runtime pointer. Existing cached plugins may need a provider-specific reload/update or app restart; verify the displayed version.
 
+Before installing 0.3.1 or later, back up the database. Desktop host bindings and redirects are additive tables. After a redirect, a pre-0.3.1 broker would ignore the new routes; use the matching backup and broker together for a rollback. See [Claude continuity](../integrations/CLAUDE.md#conversation-continuity).
+
 The 0.3.0 schema can open earlier Relay state without resetting identities/history. Restarted in-flight submissions become uncertain. Test future upgrades against a backup before using live state.
 
 ## Troubleshooting

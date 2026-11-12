@@ -32,9 +32,9 @@ test('enrollment reuses the exact endpoint and rejects alias theft, rename and c
   assert.throws(() => store.enroll({ ...input, channel: 'other' }), /already belongs/);
   assert.throws(() => store.enroll({ ...input, native_id: randomUUID() }), /Alias already registered/);
   assert.throws(() => store.enroll({ kind: 'codex', native_id: 'a title' }), /UUID/);
-  const third = store.enroll({ kind: 'claude-desktop', native_id: randomUUID(), default_channel: 'project' });
+  const third = store.enroll({ kind: 'agy', native_id: randomUUID(), default_channel: 'project' });
   assert.equal(third.endpoint.channel, 'project');
-  assert.match(third.endpoint.alias, /^claude-/);
+  assert.match(third.endpoint.alias, /^agy-/);
   store.pause(first.endpoint.id, true);
   assert.equal(store.enroll(input).endpoint.paused, 1, 'enrollment must not unpause usage-blocked sessions');
 });

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Preserve Claude desktop addresses across verified native session ID changes. Existing eligible duplicate addresses redirect new traffic without moving the old backlog. Unknown chats need an explicit alias, and ambiguous identities are held for owner review.
+
 ## 0.3.0 — 2026-10-24
 
 First public source release.

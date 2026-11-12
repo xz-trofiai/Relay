@@ -1,6 +1,6 @@
 {
   "name": "relay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Register the current desktop Code session and exchange addressed messages with Codex and other registered sessions through a local shared channel.",
   "author": {
     "name": "Local developer"

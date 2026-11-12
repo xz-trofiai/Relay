@@ -11,7 +11,7 @@ export function required(value, name, max = 4000) {
   return value;
 }
 const now = () => new Date().toISOString();
-const publicEndpoint = ({ token, native_id, bridge_id, bridge_until, ...rest }) => rest;
+const publicEndpoint = ({ token, native_id, bridge_id, bridge_until, desktop_host, ...rest }) => rest;
 
 export class Store {
   constructor(path) {
@@ -24,6 +24,19 @@ export class Store {
         paused INTEGER NOT NULL DEFAULT 0, last_seen TEXT,
         bridge_id TEXT, bridge_until INTEGER, UNIQUE(channel, alias)
       );
+      CREATE TABLE IF NOT EXISTS desktop_hosts (
+        host TEXT PRIMARY KEY, endpoint TEXT NOT NULL UNIQUE REFERENCES endpoints(id)
+      );
+      CREATE TABLE IF NOT EXISTS desktop_redirects (
+        predecessor TEXT PRIMARY KEY REFERENCES endpoints(id), successor TEXT NOT NULL UNIQUE REFERENCES endpoints(id),
+        CHECK (predecessor != successor)
+      );
+      CREATE VIEW IF NOT EXISTS active_endpoints AS
+        SELECT e.id,e.channel,COALESCE(old.alias,e.alias) AS alias,e.kind,e.native_id,e.token,
+          e.paused,e.last_seen,e.bridge_id,e.bridge_until,h.host AS desktop_host
+        FROM endpoints e LEFT JOIN desktop_redirects r ON r.successor=e.id
+        LEFT JOIN endpoints old ON old.id=r.predecessor LEFT JOIN desktop_hosts h ON h.endpoint=e.id
+        WHERE NOT EXISTS (SELECT 1 FROM desktop_redirects d WHERE d.predecessor=e.id);
       CREATE TABLE IF NOT EXISTS messages (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
         channel TEXT NOT NULL REFERENCES channels(name), thread_id TEXT NOT NULL,
@@ -46,7 +59,8 @@ export class Store {
     try { const result = fn(); this.db.exec('COMMIT'); return result; }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
-  register({ alias, kind, channel = 'general', native_id = null }) {
+  register(input) { return this.transaction(() => this._register(input)); }
+  _register({ alias, kind, channel = 'general', native_id = null }) {
     for (const [key, value] of Object.entries({ alias, channel, kind })) {
       if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) throw new RelayError(`Invalid ${key}`);
     }
@@ -54,24 +68,23 @@ export class Store {
     if (['codex', 'claude-desktop', 'agy'].includes(kind) && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(native_id ?? '')) {
       throw new RelayError('Registration requires the exact native session UUID');
     }
-    return this.transaction(() => {
-      if (this.db.prepare('SELECT id FROM endpoints WHERE channel=? AND alias=?').get(channel, alias)) {
-        throw new RelayError('Alias already registered in this channel; choose another alias', 409);
-      }
-      if (native_id && this.db.prepare('SELECT id FROM endpoints WHERE kind=? AND native_id=?').get(kind, native_id)) {
-        throw new RelayError('Native session already registered; use its existing identity', 409);
-      }
-      this.db.prepare('INSERT OR IGNORE INTO channels(name) VALUES (?)').run(channel);
-      const id = randomUUID(), token = randomUUID();
-      this.db.prepare('INSERT INTO endpoints(id,channel,alias,kind,native_id,token) VALUES (?,?,?,?,?,?)')
-        .run(id, channel, alias, kind, native_id, token);
-      return this.endpoint(id);
-    });
+    if (this.db.prepare('SELECT id FROM endpoints WHERE channel=? AND alias=?').get(channel, alias)) {
+      throw new RelayError('Alias already registered in this channel; choose another alias', 409);
+    }
+    if (native_id && this.db.prepare('SELECT id FROM endpoints WHERE kind=? AND native_id=?').get(kind, native_id)) {
+      throw new RelayError('Native session already registered; use its existing identity', 409);
+    }
+    this.db.prepare('INSERT OR IGNORE INTO channels(name) VALUES (?)').run(channel);
+    const id = randomUUID(), token = randomUUID();
+    this.db.prepare('INSERT INTO endpoints(id,channel,alias,kind,native_id,token) VALUES (?,?,?,?,?,?)')
+      .run(id, channel, alias, kind, native_id, token);
+    return this.endpoint(id);
   }
   // Owner-only, serialized by the daemon. Recover the same credential after a
   // lost response/profile write; never retarget an alias or a native session.
   enroll({ kind, native_id, alias, channel, default_channel = 'main' }) {
-    if (!['codex', 'claude-desktop', 'agy'].includes(kind) ||
+    if (kind === 'claude-desktop') throw new RelayError('Desktop enrollment requires verified broker observation', 409);
+    if (!['codex', 'agy'].includes(kind) ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(native_id ?? '')) {
       throw new RelayError('Enrollment requires a supported native session UUID');
     }
@@ -81,21 +94,68 @@ export class Store {
       if (channel !== undefined && channel !== existing.channel) throw new RelayError(`This session already belongs to channel ${existing.channel}`, 409);
       return { endpoint: existing, reused: true };
     }
-    return { endpoint: this.register({ kind, native_id, alias: alias ?? `${kind === 'claude-desktop' ? 'claude' : kind}-${native_id}`,
+    return { endpoint: this.register({ kind, native_id, alias: alias ?? `${kind}-${native_id}`,
       channel: channel ?? default_channel }), reused: false };
   }
+  // Only consume a fresh observation generated by the broker, never fields
+  // supplied by a plugin. Without an enrollment request this cannot create a member.
+  reconcileDesktop(observation, request) {
+    const conflict = reason => { throw new RelayError(`Claude desktop identity: ${reason}; owner review required`, 409); };
+    if (!observation || observation.error) conflict(observation?.error ?? 'no verified live session');
+    const { native, host, prior } = observation;
+    return this.transaction(() => {
+      const desktops = this.db.prepare("SELECT * FROM active_endpoints WHERE kind='claude-desktop'").all();
+      const exact = desktops.find(e => e.native_id === native);
+      if (this.db.prepare('SELECT 1 FROM desktop_redirects r JOIN endpoints e ON e.id=r.predecessor WHERE e.native_id=?').get(native)) {
+        conflict('a retired native session has returned');
+      }
+      const previous = desktops.filter(e => e !== exact && (e.desktop_host === host || prior?.includes(e.native_id)));
+      if (previous.length > 1) conflict('multiple earlier registrations');
+      const old = previous[0];
+      for (const e of [old, exact].filter(Boolean)) if (e.desktop_host && e.desktop_host !== host) conflict('different recorded host');
+      if (old && !prior?.includes(old.native_id)) conflict('host record does not confirm the prior native ID');
+      let active = exact ?? old, reused = !!active;
+      if (!active) {
+        if (!request) return null;
+        if (!request.alias) conflict('unknown session; for a new chat explicitly register --alias NAME; for a returning chat report the conflict');
+        active = this._register({ kind: 'claude-desktop', native_id: native, alias: request.alias,
+          channel: request.channel ?? request.default_channel ?? 'main' });
+      }
+      if (old) {
+        if (this.db.prepare("SELECT 1 FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.recipient IN (?,?) AND d.status='submitting'").get(old.id,active.id)) conflict('delivery in flight; retry later');
+        if (exact) {
+          // Keep the current credential and reply threads. Route only future
+          // addresses; the predecessor's original messages and receipts stay put.
+          if (old.channel !== exact.channel || old.paused || exact.paused ||
+              exact.alias !== `claude-${native}` || this.db.prepare('SELECT 1 FROM desktop_redirects WHERE successor IN (?,?)').get(old.id,exact.id)) {
+            conflict('registrations cannot be safely consolidated');
+          }
+          this.db.prepare('INSERT INTO desktop_redirects(predecessor,successor) VALUES (?,?)').run(old.id,exact.id);
+          this.db.prepare('DELETE FROM desktop_hosts WHERE endpoint=?').run(old.id);
+        } else {
+          this.db.prepare('UPDATE endpoints SET native_id=? WHERE id=?').run(native,old.id);
+        }
+      }
+      if (!active.desktop_host) this.db.prepare('INSERT INTO desktop_hosts(host,endpoint) VALUES (?,?)').run(host,active.id);
+      const endpoint = this.endpoint(active.id);
+      if (request?.alias !== undefined && request.alias !== endpoint.alias &&
+          !this.db.prepare('SELECT 1 FROM endpoints WHERE id=? AND alias=?').get(active.id, request.alias)) conflict('alias mismatch; enrollment does not rename it');
+      if (request?.channel !== undefined && request.channel !== endpoint.channel) conflict('registration is in a different channel');
+      return { endpoint, reused };
+    });
+  }
   endpoint(id) {
-    const endpoint = this.db.prepare('SELECT * FROM endpoints WHERE id=?').get(id);
+    const endpoint = this.db.prepare('SELECT * FROM active_endpoints WHERE id=?').get(id);
     if (!endpoint) throw new RelayError('Endpoint not found', 404);
     return endpoint;
   }
   authenticate(token) {
-    return this.db.prepare('SELECT * FROM endpoints WHERE token=?').get(token);
+    return this.db.prepare('SELECT * FROM active_endpoints WHERE token=?').get(token);
   }
   sessions(channel) {
     const rows = channel
-      ? this.db.prepare('SELECT * FROM endpoints WHERE channel=? ORDER BY alias').all(channel)
-      : this.db.prepare('SELECT * FROM endpoints ORDER BY channel,alias').all();
+      ? this.db.prepare('SELECT * FROM active_endpoints WHERE channel=? ORDER BY alias').all(channel)
+      : this.db.prepare('SELECT * FROM active_endpoints ORDER BY channel,alias').all();
     return rows.map(publicEndpoint);
   }
   pause(id, paused) {
@@ -120,11 +180,15 @@ export class Store {
       return publicEndpoint(this.endpoint(id));
     });
   }
+  routeId(id) {
+    return this.db.prepare('SELECT successor FROM desktop_redirects WHERE predecessor=?').get(id)?.successor ?? id;
+  }
   message(id) {
     const result = this.db.prepare(`SELECT m.*, d.status, d.attempts, d.error,
-      a.alias AS sender_alias, b.alias AS recipient_alias
+      COALESCE(aa.alias,a.alias) AS sender_alias, COALESCE(bb.alias,b.alias) AS recipient_alias
       FROM messages m JOIN deliveries d ON d.message_id=m.id
-      JOIN endpoints a ON a.id=m.sender JOIN endpoints b ON b.id=m.recipient WHERE m.id=?`).get(id);
+      JOIN endpoints a ON a.id=m.sender JOIN endpoints b ON b.id=m.recipient
+      LEFT JOIN active_endpoints aa ON aa.id=m.sender LEFT JOIN active_endpoints bb ON bb.id=m.recipient WHERE m.id=?`).get(id);
     if (!result) throw new RelayError('Message not found', 404);
     return result;
   }
@@ -138,14 +202,14 @@ export class Store {
     const matches = this.db.prepare('SELECT * FROM endpoints WHERE channel=? AND (id=? OR alias=?)')
       .all(sender.channel, recipient, recipient);
     if (matches.length > 1) throw new RelayError('Ambiguous recipient; use a unique endpoint ID or alias', 409);
-    const target = matches[0];
+    const target = matches[0] && this.endpoint(this.routeId(matches[0].id));
     if (!target) throw new RelayError('Recipient is not registered in this channel', 404);
     if (target.id === sender.id) throw new RelayError('Self-addressed messages are not supported');
     const existing = this.db.prepare('SELECT id FROM messages WHERE sender=? AND idempotency_key=?')
       .get(senderId, idempotency_key);
     if (existing) {
       const previous = this.message(existing.id);
-      if (previous.body !== body || previous.recipient !== target.id || previous.reply_to !== reply_to) {
+      if (previous.body !== body || this.routeId(previous.recipient) !== target.id || previous.reply_to !== reply_to) {
         throw new RelayError('Idempotency key was already used with different content', 409);
       }
       return previous;
@@ -154,7 +218,7 @@ export class Store {
     let thread = randomUUID(), depth = 0;
     if (reply_to) {
       const parent = this.message(reply_to);
-      if (parent.recipient !== senderId || parent.sender !== target.id) {
+      if (parent.recipient !== senderId || this.routeId(parent.sender) !== target.id) {
         throw new RelayError('Only the addressed recipient may reply to the sender', 403);
       }
       thread = parent.thread_id; depth = parent.depth + 1;
@@ -190,6 +254,9 @@ export class Store {
     this.db.prepare("UPDATE deliveries SET status='acknowledged',error=NULL,updated_at=? WHERE message_id=?")
       .run(now(), messageId);
     return this.message(messageId);
+  }
+  hasQueued(id) {
+    return !!this.db.prepare("SELECT 1 FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.recipient=? AND d.status='queued' LIMIT 1").get(id);
   }
   claim(endpointId) {
     return this.transaction(() => {

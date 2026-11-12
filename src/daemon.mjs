@@ -6,6 +6,7 @@ import { Store, RelayError } from './store.mjs';
 import { codexAdapter } from './adapters/codex.mjs';
 import { claudeDesktopAdapter, findDesktopSession } from './adapters/claude-desktop.mjs';
 import { createTitleResolver } from './session-titles.mjs';
+import { observeDesktops } from './desktop-continuity.mjs';
 import { codexBinary } from './provider-paths.mjs';
 
 export function acquireLock(home) {
@@ -38,7 +39,7 @@ async function jsonBody(request) {
   } catch { throw new RelayError('Expected a JSON object'); }
 }
 
-export async function startDaemon({ home, port = 9231, adapters, interval = 500, resolveTitles = createTitleResolver() } = {}) {
+export async function startDaemon({ home, port = 9231, adapters, interval = 500, desktopObserver = observeDesktops, desktopScanInterval = 3000, resolveTitles = createTitleResolver() } = {}) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const unlock = acquireLock(home);
   let store;
@@ -49,6 +50,30 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
   if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomUUID(), { mode: 0o600 });
   const ownerToken = readFileSync(tokenPath, 'utf8').trim();
   const drivers = adapters ?? { codex: codexAdapter({ binary: codexBinary() }), 'claude-desktop': claudeDesktopAdapter({ home }) };
+  // Enrollment always uses fresh broker-side evidence. On the receiving side,
+  // discovery runs even if the resumed chat has not issued any Relay commands.
+  let scan, checkedAt = 0, desktopReady = new Map(), errors = new Map();
+  function observations() {
+    return scan ??= Promise.resolve().then(desktopObserver).finally(() => { scan = null; });
+  }
+  async function enrollDesktop(body) {
+    const rows = await observations();
+    return store.reconcileDesktop(rows.find(r => r.native === body.native_id), body);
+  }
+  async function refreshDesktops() {
+    if (checkedAt && Date.now() - checkedAt < desktopScanInterval) return;
+    const next = new Map(), problems = new Map();
+    try {
+      for (const row of await observations()) {
+        try {
+          const e = store.reconcileDesktop(row)?.endpoint;
+          if (e) next.set(e.id, e.native_id);
+        } catch (error) { problems.set(row.native, error.message); }
+      }
+    } catch (error) { problems.set('registry', error.message); }
+    for (const [key, error] of problems) if (errors.get(key) !== error) console.error('Claude desktop continuity:', key, error);
+    errors = problems; desktopReady = next; checkedAt = Date.now();
+  }
   const server = http.createServer(async (request, response) => {
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'no-store');
@@ -65,9 +90,11 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
       let result;
       const match = url.pathname.match(/^\/v1\/messages\/([0-9a-f-]+)\/(ack|reply|requeue)$/);
       if (request.method === 'GET' && url.pathname === '/v1/status') {
-        result = { version: '0.3.0', sessions: store.sessions(endpoint?.channel) };
+        result = { version: '0.3.1', sessions: store.sessions(endpoint?.channel),
+          ...(admin ? { desktop_identity_conflicts: Object.fromEntries(errors) } : {}) };
       } else if (request.method === 'GET' && url.pathname === '/v1/directory') {
         requireMember();
+        if (drivers['claude-desktop']?.usesDesktopIdentity) await refreshDesktops();
         const sessions = store.sessions(endpoint.channel);
         // Resolve only this member's channel and disclose only title metadata.
         const identities = sessions.map(session => {
@@ -79,9 +106,13 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
         result = { sessions: sessions.map(session => ({ ...session,
           title: titles.get(session.id)?.title ?? null, title_source: titles.get(session.id)?.title_source ?? null })) };
       } else if (request.method === 'POST' && url.pathname === '/v1/register') {
-        requireAdmin(); result = store.register(body);
+        requireAdmin();
+        if (body.kind === 'claude-desktop') {
+          if (!body.alias) throw new RelayError('Operator registration requires an alias');
+          result = (await enrollDesktop({ ...body, default_channel: 'general' })).endpoint;
+        } else result = store.register(body);
       } else if (request.method === 'POST' && url.pathname === '/v1/enroll') {
-        requireAdmin(); result = store.enroll(body);
+        requireAdmin(); result = body.kind === 'claude-desktop' ? await enrollDesktop(body) : store.enroll(body);
       } else if (request.method === 'POST' && url.pathname === '/v1/pause') {
         requireAdmin(); if (typeof body.paused !== 'boolean') throw new RelayError('paused must be boolean');
         result = store.pause(body.endpoint_id, body.paused);
@@ -130,6 +161,7 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
       if (!error.status) console.error(error);
     }
   });
+  if (drivers['claude-desktop']?.usesDesktopIdentity) await refreshDesktops();
   try { await new Promise((resolve, reject) => {
     server.once('error', reject); server.listen(port, '127.0.0.1', resolve);
   }); } catch (error) { store.close(); unlock(); throw error; }
@@ -140,10 +172,24 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
     if (pending || stopped) return;
     pending = (async () => {
       store.expireClaims();
+      const nativeDesktop = drivers['claude-desktop']?.usesDesktopIdentity;
+      if (nativeDesktop && (!checkedAt || store.db.prepare(`SELECT 1 FROM deliveries d JOIN messages m ON m.id=d.message_id
+          JOIN active_endpoints e ON e.id=m.recipient WHERE e.kind='claude-desktop' AND e.paused=0 AND d.status='queued' LIMIT 1`).get())) {
+        await refreshDesktops();
+      }
       // Independent endpoints progress together; each endpoint has one delivery lane.
       await Promise.all(store.sessions().filter(ep => !ep.paused && drivers[ep.kind]).map(async endpoint => {
         const driver = drivers[endpoint.kind], privateEndpoint = store.endpoint(endpoint.id);
+        if (endpoint.kind === 'claude-desktop' && nativeDesktop && desktopReady.get(endpoint.id) !== privateEndpoint.native_id) return;
+        if (!store.hasQueued(endpoint.id)) return;
         if (driver.available && !await driver.available(privateEndpoint)) return;
+        if (nativeDesktop && endpoint.kind === 'claude-desktop') {
+          // The short cache throttles checks for offline mailboxes. Before an actual
+          // claim, validate uniqueness again rather than delivering on a stale scan.
+          const live = (await observations()).find(r => r.native === privateEndpoint.native_id);
+          if (!live || live.error || live.host !== privateEndpoint.desktop_host) return;
+        }
+        if (store.routeId(endpoint.id) !== endpoint.id || store.endpoint(endpoint.id).native_id !== privateEndpoint.native_id) return;
         const delivery = store.claim(endpoint.id);
         if (!delivery) return;
         let outcome;

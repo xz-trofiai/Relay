@@ -1,6 +1,6 @@
 {
   "name": "relay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Register the current session and exchange addressed messages with Codex, Claude, and Antigravity App sessions through a local shared channel.",
   "author": {
     "name": "Local developer"

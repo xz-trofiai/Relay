@@ -92,7 +92,7 @@ test('installed App hook + plugin + sidecar complete an isolated three-provider 
   assert.equal(first.kind, 'agy'); assert.equal(second.alias, `agy-${contexts[1].conversationId}`);
   assert.equal((await run(0, 'whoami')).id, first.id);
   await assert.rejects(run(1, 'register --alias research-agy'), /already registered/);
-  const codex = enroll(daemon.store, 'core', 'codex'), claude = enroll(daemon.store, 'website', 'claude-desktop');
+  const codex = enroll(daemon.store, 'core', 'codex'), claude = daemon.store.register({ alias: 'website', kind: 'claude-desktop', channel: 'main', native_id: randomUUID() });
   enroll(daemon.store, 'private', 'agy', 'private-channel');
   const listed = await run(0, 'directory --json');
   assert.equal(listed.sessions.length, 4); assert.equal(listed.current_session.id, first.id);

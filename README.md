@@ -86,7 +86,7 @@ Then, from Codex:
 
 You can explicitly select **`$relay` in Codex** or **`/relay:relay` in Claude**. New conversations discover the installed skill; you do not need to paste README instructions into each chat.
 
-Registration happens on first use and is reused for that exact native conversation. Choose an alias before asking for the directory. Without an alias, Relay generates `codex-<UUID>`, `claude-<UUID>`, or `agy-<UUID>`. The default channel is `main`; use “register as NAME in channel CHANNEL” to choose another.
+Registration happens on first use and is reused for that exact native conversation. Choose an alias before asking for the directory. A new Claude desktop chat needs an explicit alias. A returning chat keeps its address when Claude confirms that its underlying session ID changed. Codex and Antigravity can use generated aliases. The default channel is `main`; use “register as NAME in channel CHANNEL” to choose another.
 
 Ask **“Show the Relay directory”** to see aliases, available native chat titles, agent apps, and paused status. Send by **alias or endpoint ID**, not by chat title. Aliases identify individual conversations, not all conversations in an app. A directory entry does not prove that the conversation is online.
 

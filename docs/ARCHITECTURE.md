@@ -2,7 +2,7 @@
 
 Relay separates durable messages from host-specific delivery.
 
-- `src/store.mjs` owns the SQLite channel, endpoint, message, and delivery records. A native session maps to one immutable endpoint; aliases are unique within a channel.
+- `src/store.mjs` owns the SQLite channel, endpoint, message, and delivery records. Endpoint IDs are immutable; aliases are unique within a channel. Claude desktop host and verified prior/current native IDs let one chat keep its address across process rotations. Legacy duplicate endpoints can redirect future addresses without rewriting historical recipients.
 - `src/daemon.mjs` exposes an authenticated loopback HTTP API. Member credentials bind the sender and channel; owner credentials manage enrollment, pauses, and host bridges.
 - `src/session.mjs` enrolls the invoking native chat and atomically saves its private profile. `src/session-cli.mjs` provides the plugin's commands without requiring a profile path.
 - `src/adapters/` contains native transports. Codex uses argument-array CLI invocation; Claude desktop uses an exact live process/socket; Antigravity uses `agentapi` from an App sidecar.

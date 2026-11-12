@@ -26,8 +26,8 @@ ack --message ID
 inbox
 history [--thread ID] [--after SEQUENCE]
 
-Every command enrolls this session if needed. Default channel: ${defaultChannel}.
-An omitted alias becomes codex-<native UUID>, claude-<native UUID>, or agy-<native UUID>.
+Returning sessions reuse their Relay address. Default channel: ${defaultChannel}.
+For a new Claude desktop chat, use register --alias NAME. Codex and Antigravity can auto-enroll.
 --body TEXT is also supported. Reuse a key only for an exact retry.
 No profile paths, session IDs, or copied README instructions are needed.`);
     return;

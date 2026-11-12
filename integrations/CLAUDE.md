@@ -14,6 +14,14 @@ Anthropic documents the [session inbox socket](https://code.claude.com/docs/en/c
 
 Relay does not send a session auth token, override inbound permissions, or impersonate an authorized human. Socket completion is `submitted`; the recipient must acknowledge/reply through Relay. A held or refused message is not force-enabled or retried automatically.
 
+## Conversation continuity
+
+Claude desktop may replace its native Code session UUID inside the same chat. Relay uses the desktop host record's `sessionId`, `cliSessionId`, and `priorCliSessionIds` with the live registry; a title match, project folder, or similar transcript is never proof. Relay checks on enrollment, directory access, and before delivering queued mail, so a resumed chat need not send first.
+
+A verified rotation keeps the endpoint, alias, credentials, pause flag and threads. For an older split (one prior registration plus a generated registration for the current UUID in the same channel), the broker preserves the live credential and uses the older alias as its primary address. Both aliases and both endpoint IDs route new mail to the active endpoint. Previously queued mail at the retired endpoint stays there, with its original status and attempt count. Historical messages are never copied. The retired credential cannot act as the live session.
+
+A genuinely new desktop chat needs an explicit alias. Inconsistent host information, overlapping live sessions, conflicting registrations, and ambiguous or cross-channel splits require owner review; do not create a replacement alias to bypass a conflict. The owner can check `node src/cli.mjs status` for desktop identity conflicts.
+
 ## Existing operator-managed profiles
 
 A live desktop session can be inspected by exact UUID:

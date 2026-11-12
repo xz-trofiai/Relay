@@ -56,12 +56,12 @@ test('native frame preserves exact session/message identity and sends no authori
   const f = await fixture(); t.after(() => f.close());
   const target = await f.add(1006);
   const message = { id: randomUUID(), channel: 'main', sender_alias: 'codex', recipient_alias: 'claude', thread_id: randomUUID(), body: '`false` $(touch /tmp/no)\nHello' };
-  const frame = desktopFrame({ native_id: f.session }, message, join(f.root, "profile's.json"));
+  const frame = desktopFrame({ native_id: f.session }, message, join(f.root, "owner's state"));
   assert.equal(frame.session_id, f.session); assert.equal(frame.uuid, message.id);
   assert.equal(frame.priority, 'next'); assert.equal(frame.from, undefined);
   assert.equal(frame.token, undefined); assert.equal(frame.from_mode, undefined);
   assert.ok(frame.message.content.includes(message.body));
-  assert.ok(frame.message.content.includes("profile'\\''s.json"));
+  assert.ok(frame.message.content.includes("owner'\\''s state"));
   const received = new Promise(resolve => target.server.once('connection', socket => {
     let data = ''; socket.on('data', chunk => { data += chunk; }); socket.on('end', () => resolve(data));
   }));
@@ -94,12 +94,14 @@ test('binding preserves identity/history and prevents a CLI channel from claimin
 test('offline desktop keeps mail queued; socket submission remains distinct from recipient acknowledgment', async t => {
   const root = mkdtempSync(join(tmpdir(), 'relay-delivery-'));
   let online = false, frame;
-  const driver = claudeDesktopAdapter({ home: root, discover: async () => online ? { socket: '/test.sock' } : null,
+  const native = randomUUID(), host = 'local_' + randomUUID();
+  const driver = claudeDesktopAdapter({ home: root, discover: async () => online ? { socket: '/test.sock', host_session_id: host } : null,
     write: async (socket, value) => { frame = value; } });
-  const daemon = await startDaemon({ home: root, port: 0, adapters: { 'claude-desktop': driver }, interval: 60000 });
+  const daemon = await startDaemon({ home: root, port: 0, adapters: { 'claude-desktop': driver }, interval: 60000, desktopScanInterval: 0,
+    desktopObserver: async () => online ? [{ native, host, prior: [] }] : [] });
   t.after(async () => { await daemon.close(); rmSync(root, { recursive: true, force: true }); });
   const from = daemon.store.register({ alias: 'a', kind: 'manual' });
-  const to = daemon.store.register({ alias: 'b', kind: 'claude-desktop', native_id: randomUUID() });
+  const to = daemon.store.register({ alias: 'b', kind: 'claude-desktop', native_id: native });
   const message = daemon.store.send(from.id, { recipient: to.id, body: 'hello', idempotency_key: 'a' });
   await daemon.tick();
   assert.equal(daemon.store.message(message.id).status, 'queued');
