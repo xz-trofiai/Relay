@@ -11,6 +11,7 @@ export function required(value, name, max = 4000) {
   return value;
 }
 const now = () => new Date().toISOString();
+const namePattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 const publicEndpoint = ({ token, native_id, bridge_id, bridge_until, desktop_host, ...rest }) => rest;
 
 export class Store {
@@ -62,7 +63,7 @@ export class Store {
   register(input) { return this.transaction(() => this._register(input)); }
   _register({ alias, kind, channel = 'general', native_id = null }) {
     for (const [key, value] of Object.entries({ alias, channel, kind })) {
-      if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) throw new RelayError(`Invalid ${key}`);
+      if (typeof value !== 'string' || !namePattern.test(value)) throw new RelayError(`Invalid ${key}`);
     }
     if (native_id !== null) required(native_id, 'native_id', 256);
     if (['codex', 'claude-desktop', 'agy'].includes(kind) && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(native_id ?? '')) {
@@ -162,6 +163,20 @@ export class Store {
     this.endpoint(id);
     this.db.prepare('UPDATE endpoints SET paused=? WHERE id=?').run(paused ? 1 : 0, id);
     return publicEndpoint(this.endpoint(id));
+  }
+  // Owner-only. Renames by endpoint ID, never by native identity. A consolidated
+  // desktop chat shows its predecessor's alias, so that row holds the name.
+  rename(id, alias) {
+    return this.transaction(() => {
+      if (typeof alias !== 'string' || !namePattern.test(alias)) throw new RelayError('Invalid alias');
+      const endpoint = this.endpoint(id);
+      const holder = this.db.prepare('SELECT predecessor FROM desktop_redirects WHERE successor=?').get(id)?.predecessor ?? id;
+      if (this.db.prepare('SELECT 1 FROM endpoints WHERE channel=? AND alias=? AND id!=?').get(endpoint.channel, alias, holder)) {
+        throw new RelayError('Alias already registered in this channel; choose another alias', 409);
+      }
+      this.db.prepare('UPDATE endpoints SET alias=? WHERE id=?').run(alias, holder);
+      return publicEndpoint(this.endpoint(id));
+    });
   }
   bindClaudeDesktop(id, nativeId) {
     return this.transaction(() => {

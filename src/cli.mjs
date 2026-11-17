@@ -66,6 +66,7 @@ inbox       --profile FILE
 history     [--profile FILE | --channel NAME] [--thread ID] [--after SEQUENCE]
 export      [--profile FILE | --channel NAME] [--thread ID]
 config      --profile FILE       Print session-scoped MCP configuration
+rename      --endpoint ID --alias NAME  Change a session's alias; history keeps endpoint IDs
 pause       --endpoint ID
 unpause     --endpoint ID        Only after the underlying blocker is resolved
 requeue     --message ID --confirm-redelivery
@@ -123,6 +124,9 @@ No usage-reset-credit operation is implemented.`);
     const result = await directory(await identity());
     if (values.json) print(result); else console.log(formatDirectory(result));
     return;
+  }
+  if (command === 'rename') {
+    print(await request(owner(), '/v1/rename', { endpoint_id: need('endpoint'), alias: need('alias') })); return;
   }
   if (command === 'pause' || command === 'unpause') {
     print(await request(owner(), '/v1/pause', { endpoint_id: need('endpoint'), paused: command === 'pause' })); return;

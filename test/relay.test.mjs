@@ -229,3 +229,24 @@ test('real MCP stdio round trip: addressed Claude channel notification, reply, a
   await mcp.close();
   assert.equal(mcp.child.signalCode, null, 'Bridge should exit cleanly on stdin EOF');
 });
+
+test('owner rename moves an alias without changing identity, routing or history', async t => {
+  const daemon = await startDaemon({ home: temporary(t), port: 0, adapters: {}, interval: 60000 });
+  t.after(() => daemon.close());
+  const { store } = daemon, owner = { url: daemon.url, token: daemon.ownerToken };
+  const generated = register(store, 'codex-generated', 'shared', 'codex'), peer = register(store, 'peer');
+  register(store, 'dealexec', 'unrelated');
+  const before = send(store, peer, generated);
+  const member = { url: daemon.url, token: generated.token };
+  await assert.rejects(request(member, '/v1/rename', { endpoint_id: generated.id, alias: 'dealexec' }), /Owner credential/);
+  const renamed = await request(owner, '/v1/rename', { endpoint_id: generated.id, alias: 'dealexec' });
+  assert.equal(renamed.id, generated.id); assert.equal(renamed.alias, 'dealexec'); assert.equal(renamed.token, undefined);
+  assert.equal(store.endpoint(generated.id).native_id, generated.native_id);
+  assert.equal(store.message(before.id).recipient_alias, 'dealexec');
+  assert.equal(send(store, peer, { alias: 'dealexec' }).recipient, generated.id);
+  assert.throws(() => send(store, peer, generated), /not registered/);
+  assert.throws(() => store.rename(generated.id, 'peer'), /already registered/);
+  assert.throws(() => store.rename(generated.id, 'bad alias'), /Invalid alias/);
+  assert.throws(() => store.rename(randomUUID(), 'other'), /not found/);
+  assert.equal(store.rename(generated.id, 'dealexec').alias, 'dealexec');
+});

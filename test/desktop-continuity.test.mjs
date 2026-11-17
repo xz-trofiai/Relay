@@ -96,3 +96,17 @@ test('ambiguity, pause, missing lineage and cross-channel conflicts cannot creat
   assert.equal(store.routeId(old.id),old.id); assert.equal(store.endpoint(other.id).channel,'private');
   assert.equal(store.sessions().length,2);
 });
+
+test('renaming a consolidated desktop chat renames its displayed address', t => {
+  const store = new Store(join(temp(t),'db')); t.after(()=>store.close());
+  const first = snapshot(), next = {native:uuid(),host:first.host,prior:[first.native]};
+  const old = desktop(store,'website',first.native); store.reconcileDesktop(first);
+  const exact = desktop(store,`claude-${next.native}`,next.native); store.reconcileDesktop(next);
+  const peer = store.register({kind:'manual',alias:'peer',channel:'main'});
+  assert.equal(store.endpoint(exact.id).alias,'website');
+  assert.throws(()=>store.rename(old.id,'site'),/not found/);
+  assert.throws(()=>store.rename(exact.id,`claude-${next.native}`),/already registered/);
+  assert.equal(store.rename(exact.id,'site').alias,'site');
+  assert.equal(send(store,peer,'site').recipient,exact.id);
+  assert.throws(()=>send(store,peer,'website'),/not registered/);
+});

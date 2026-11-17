@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Owner-only `rename --endpoint ID --alias NAME` changes a session's alias while preserving its identity, queue and threads.
+
 ## 0.3.1
 
 - Preserve Claude desktop addresses across verified native session ID changes. Existing eligible duplicate addresses redirect new traffic without moving the old backlog. Unknown chats need an explicit alias, and ambiguous identities are held for owner review.

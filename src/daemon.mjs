@@ -116,6 +116,8 @@ export async function startDaemon({ home, port = 9231, adapters, interval = 500,
       } else if (request.method === 'POST' && url.pathname === '/v1/pause') {
         requireAdmin(); if (typeof body.paused !== 'boolean') throw new RelayError('paused must be boolean');
         result = store.pause(body.endpoint_id, body.paused);
+      } else if (request.method === 'POST' && url.pathname === '/v1/rename') {
+        requireAdmin(); result = store.rename(body.endpoint_id, body.alias);
       } else if (request.method === 'POST' && url.pathname === '/v1/bind-claude-desktop') {
         requireAdmin();
         const target = await findDesktopSession(body.native_id);

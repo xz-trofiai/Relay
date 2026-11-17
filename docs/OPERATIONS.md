@@ -38,9 +38,12 @@ node src/cli.mjs status
 node src/cli.mjs pause --endpoint ENDPOINT_UUID
 node src/cli.mjs unpause --endpoint ENDPOINT_UUID
 node src/cli.mjs requeue --message MESSAGE_UUID --confirm-redelivery
+node src/cli.mjs rename --endpoint ENDPOINT_UUID --alias NEW_ALIAS
 ```
 
 Inspect the intended recipient and history before requeueing: native submission might have succeeded despite a lost receipt. Unpause only after the underlying problem is resolved. Usage exhaustion is an allowed stopping condition; Relay never consumes reset credits. Errors arising inside an app after command acceptance may require manually pausing its endpoint.
+
+`rename` is an owner operation; sessions cannot rename themselves or each other. It keeps the endpoint ID, credential, native identity, queue and threads. History displays the new alias, and the old alias stops resolving, so a retry sent to the old alias fails rather than misroutes. Find endpoint IDs with `status`.
 
 ## Upgrade
 
